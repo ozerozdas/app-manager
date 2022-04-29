@@ -10,4 +10,5 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['auth.basic.once'])->group(function () {
     Route::post('/register', [DefaultController::class, 'register'])->name('register');
     Route::post('/purchase', [DefaultController::class, 'purchase'])->name('purchase');
+    Route::post('/subscription/check', [DefaultController::class, 'checkSubscription'])->name('checkSubscription');
 });

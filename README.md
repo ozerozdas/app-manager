@@ -22,3 +22,9 @@ You can get the database with the following command, or you can import with the 
 ```
 php artisan migrate
 ```
+
+To check subscriptions, run the following command:
+```
+php artisan command:subs-control
+```
+This command can be added as a cronjob.

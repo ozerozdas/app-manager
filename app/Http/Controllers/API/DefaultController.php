@@ -3,21 +3,18 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Services\AppleAPI;
+use App\Services\GoogleAPI;
+use GuzzleHttp\Client;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rule;
 use Ramsey\Uuid\Uuid;
 use function response;
 
 class DefaultController extends Controller {
-    public function index() {
-        return response()->json([
-            'status' => true,
-            'message' => 'API is working'
-        ]);
-    }
-
-    public function register(Request $request) {
+    public function register(Request $request) : \Illuminate\Http\JsonResponse {
         $request->validate([
             'uid' => 'required|unique:device',
             'appId' => [
@@ -25,7 +22,10 @@ class DefaultController extends Controller {
                 Rule::exists('app_info', 'id'),
             ],
             'language' => 'required',
-            'operatingSystem' => 'required',
+            'operatingSystem' => [
+                'required',
+                'in:android,ios',
+            ],
         ]);
         $status = DB::table('device')->insert([
             'uid' => $request->uid,
@@ -43,7 +43,10 @@ class DefaultController extends Controller {
         ]);
     }
 
-    public function purchase(Request $request) {
+    /**
+     * @throws \Exception
+     */
+    public function purchase(Request $request) : \Illuminate\Http\JsonResponse {
         $request->validate([
             'token' => 'required',
             'receipt' => 'required|integer',
@@ -55,28 +58,58 @@ class DefaultController extends Controller {
 
         $device = DB::table('device')->where('client_token', $request->token)->first();
         $app_info = DB::table('app_info')->where('id', $device->app_id)->first();
-        $auth = null;
+
+        $subscription = DB::table('subscription')->where([
+            'uid' => $device->uid,
+            'app_id' => $device->app_id,
+        ])->first();
+        if ($subscription) {
+            $result['message'] = 'Already subscribed';
+            return response()->json($result);
+        }
+
+        $response = $client = null;
         if ($device->operating_system == 'android') {
-            $auth = base64_encode($app_info->google_username . ':' . $app_info->google_password);
+            $client = new GoogleAPI($app_info->id, $app_info->google_username, $app_info->google_password);
+            $response = $client->purchase($request->token, $request->receipt);
         }elseif ($device->operating_system == 'ios') {
-            $auth = base64_encode($app_info->ios_username . ':' . $app_info->ios_password);
-        }
-        if (!$auth) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Failed to purchase'
-            ]);
+            $client = new AppleAPI($app_info->id, $app_info->ios_username, $app_info->ios_password);
+            $response = $client->purchase($request->token, $request->receipt);
         }
 
-//        $response = Http::withHeaders([
-//            'Accept' => 'application/json',
-//            'Authorization' => 'Basic ' . $auth,
-//        ])->timeout(2)->post('http://localhost:8000/mock/purchase', [
-//            'token' => $request->token,
-//            'receipt' => $request->receipt
-//        ]);
+        if ($response and $client) {
+            $purchaseCheck = $client->purchaseCheck($request->token, $request->receipt);
+            if ($purchaseCheck) {
+                $result = DB::table('subscription')->insert([
+                    'uid' => $device->uid,
+                    'app_id' => $device->app_id,
+                    'receipt' => $request->receipt,
+                    'created_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s')
+                ]);
+                $result = [
+                    'status' => $result,
+                    'message' => $result ? 'Successfully purchased' : 'Failed to purchase'
+                ];
+            }
+        }
 
-//        dump($response);exit;
         return response()->json($result);
+    }
+
+    public function checkSubscription(Request $request) : \Illuminate\Http\JsonResponse {
+        $request->validate([
+            'token' => 'required',
+        ]);
+        $device = DB::table('device')->where('client_token', $request->token)->first();
+        $subscription = DB::table('subscription')->where([
+            'uid' => $device->uid,
+            'app_id' => $device->app_id,
+        ])->first();
+        $status = !empty($subscription->status) && (bool)$subscription->status;
+        return response()->json([
+            'status' => $status,
+            'message' => $status ? 'Subscribed' : 'Not subscribed'
+        ]);
     }
 }

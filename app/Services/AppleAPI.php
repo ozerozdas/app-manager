@@ -4,7 +4,7 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
 
-class GoogleAPI {
+class AppleAPI {
     private $appId;
     private $username;
     private $password;
