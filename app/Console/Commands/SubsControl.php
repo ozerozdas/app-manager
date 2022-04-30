@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\AppleAPI;
+use App\Services\Callback;
 use App\Services\GoogleAPI;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -59,11 +60,26 @@ class SubsControl extends Command
                     $client = new AppleAPI($subscription->app_id, $subscription->ios_username, $subscription->ios_password);
                     $status = $client->checkSubscription($subscription->receipt);
                 }
-                DB::table('subscription')->where([
+                $subs = DB::table('subscription')->where([
                     'uid' => $subscription->uid,
                     'app_id' => $subscription->app_id,
                     'status' => 1
                 ])->update(['status' => $status]);
+
+                if ($subs && $status != $subscription->status) {
+                    $log = DB::table('event_log')->insertGetId([
+                        'uid' => $subscription->uid,
+                        'app_id' => $subscription->app_id,
+                        'event_name' => 'canceled',
+                        'event_type' => '0',
+                        'created_at' => date('Y-m-d H:i:s'),
+                        'updated_at' => date('Y-m-d H:i:s')
+                    ]);
+                    if ($log) {
+                        $callback = new Callback();
+                        $callback->sendFeed($subscription->uid, $subscription->app_id, $log);
+                    }
+                }
             });
         $output = new ConsoleOutput();
         $output->writeln('Subscriptions are checked.');

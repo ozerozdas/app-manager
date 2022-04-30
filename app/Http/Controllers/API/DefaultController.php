@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Services\AppleAPI;
+use App\Services\Callback;
 use App\Services\GoogleAPI;
 use GuzzleHttp\Client;
 use Illuminate\Http\Request;
@@ -87,6 +88,20 @@ class DefaultController extends Controller {
                     'created_at' => date('Y-m-d H:i:s'),
                     'updated_at' => date('Y-m-d H:i:s')
                 ]);
+                if ($result) {
+                    $log = DB::table('event_log')->insertGetId([
+                        'uid' => $device->uid,
+                        'app_id' => $device->app_id,
+                        'event_name' => 'started',
+                        'event_type' => '1',
+                        'created_at' => date('Y-m-d H:i:s'),
+                        'updated_at' => date('Y-m-d H:i:s')
+                    ]);
+                    if ($log) {
+                        $callback = new Callback();
+                        $callback->sendFeed($device->uid, $device->app_id, $log);
+                    }
+                }
                 $result = [
                     'status' => $result,
                     'message' => $result ? 'Successfully purchased' : 'Failed to purchase'
@@ -111,5 +126,14 @@ class DefaultController extends Controller {
             'status' => $status,
             'message' => $status ? 'Subscribed' : 'Not subscribed'
         ]);
+    }
+
+    public function basicReport() : array {
+        return DB::select("select
+                el.app_id, date(el.created_at) as date, sum(if(el.event_type = 1, 1, 0)) as started, sum(if(el.event_type = 0, 1, 0)) as canceled
+            from device d
+            inner join event_log el on el.uid = d.uid and el.app_id = d.app_id
+            group by date(el.created_at), el.app_id
+            order by date asc");
     }
 }
